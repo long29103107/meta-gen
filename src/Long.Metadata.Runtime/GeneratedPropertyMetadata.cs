@@ -1,5 +1,7 @@
 namespace Long.Metadata;
 
+public delegate object? GeneratedMetadataInvoker(object declaringInstance, string methodName);
+
 /// <summary>
 /// Describes a property decorated with a GeneratedMetadataAttribute-derived attribute.
 /// </summary>
@@ -22,5 +24,17 @@ public readonly record struct GeneratedPropertyMetadata<TAttribute>(
     string PropertyName,
     string PropertyTypeFullName,
     string PropertyTypeDisplayName,
-    bool IsNullable)
-    where TAttribute : GeneratedMetadataAttribute;
+    bool IsNullable,
+    GeneratedMetadataInvoker? Invoker = null)
+    where TAttribute : GeneratedMetadataAttribute
+{
+    public object? Invoke(object declaringInstance, string methodName)
+    {
+        if (Invoker is null)
+        {
+            throw new NotSupportedException($"Property '{DeclaringTypeDisplayName}.{PropertyName}' does not expose generated method invocation metadata.");
+        }
+
+        return Invoker(declaringInstance, methodName);
+    }
+}

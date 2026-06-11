@@ -18,12 +18,27 @@ public sealed class GeneratedMetadataGeneratorTests
             {
             }
 
+            public sealed class InspectPropertyAttribute : GeneratedMetadataAttribute
+            {
+            }
+
             public sealed class User
             {
                 [IgnoreProperty]
                 public string? Password { get; set; }
 
+                [InspectProperty]
+                public Profile Profile { get; set; } = new Profile();
+
                 public string Name { get; set; } = "";
+            }
+
+            public sealed class Profile
+            {
+                public string Normalize()
+                {
+                    return "ok";
+                }
             }
             """;
 
@@ -49,6 +64,10 @@ public sealed class GeneratedMetadataGeneratorTests
         Assert.Contains("GetProperties<TAttribute>()", generatedText);
         Assert.Contains("typeof(TAttribute) == typeof(global::IgnorePropertyAttribute)", generatedText);
         Assert.Contains("new global::Long.Metadata.GeneratedPropertyMetadata<global::IgnorePropertyAttribute>", generatedText);
+        Assert.Contains("public static global::System.Collections.Generic.IReadOnlyList<global::Long.Metadata.GeneratedPropertyMetadata<TAttribute>> GetProperties<TAttribute>()", generatedText);
+        Assert.Contains("__User_Profile_Invoker", generatedText);
+        Assert.Contains("case @\"Normalize\":", generatedText);
+        Assert.Contains("return propertyValue.Normalize();", generatedText);
         Assert.Contains("@\"Password\"", generatedText);
         Assert.DoesNotContain("@\"Name\"", generatedText);
     }

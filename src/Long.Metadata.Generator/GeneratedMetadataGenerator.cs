@@ -59,12 +59,15 @@ public sealed class GeneratedMetadataGenerator : IIncrementalGenerator
                 Key: $"{attributeType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}|{property.ContainingType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}|{property.Name}",
                 AttributeTypeCodeName: attributeType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                 AttributeTypeFullName: attributeType.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat),
+                DeclaringTypeCodeName: property.ContainingType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                 DeclaringTypeFullName: property.ContainingType.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat),
                 DeclaringTypeDisplayName: property.ContainingType.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
                 PropertyName: property.Name,
+                PropertyTypeCodeName: property.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                 PropertyTypeFullName: property.Type.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat),
                 PropertyTypeDisplayName: property.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
-                IsNullable: property.NullableAnnotation == NullableAnnotation.Annotated));
+                IsNullable: property.NullableAnnotation == NullableAnnotation.Annotated,
+                Methods: GetInvokableMethods(property.Type)));
         }
 
         return builder.ToImmutable();
@@ -149,10 +152,63 @@ public sealed class GeneratedMetadataGenerator : IIncrementalGenerator
                 AppendString(source, property.PropertyTypeDisplayName);
                 source.Append(", ");
                 source.Append(property.IsNullable ? "true" : "false");
+                if (property.Methods.Length > 0)
+                {
+                    source.Append(", ");
+                    source.Append(GetInvokerName(property));
+                }
+
                 source.AppendLine("),");
             }
 
             source.AppendLine("        };");
+            source.AppendLine();
+        }
+
+        foreach (var property in properties.Where(static property => property.Methods.Length > 0))
+        {
+            source.Append("        private static object? ");
+            source.Append(GetInvokerName(property));
+            source.AppendLine("(object declaringInstance, string methodName)");
+            source.AppendLine("        {");
+            source.Append("            var propertyValue = ((");
+            source.Append(property.DeclaringTypeCodeName);
+            source.Append(")declaringInstance).");
+            source.Append(EscapeIdentifier(property.PropertyName));
+            source.AppendLine(";");
+            source.AppendLine("            if (propertyValue is null)");
+            source.AppendLine("            {");
+            source.AppendLine("                return null;");
+            source.AppendLine("            }");
+            source.AppendLine();
+            source.AppendLine("            switch (methodName)");
+            source.AppendLine("            {");
+
+            foreach (var method in property.Methods)
+            {
+                source.Append("                case ");
+                AppendString(source, method.Name);
+                source.AppendLine(":");
+
+                if (method.ReturnsVoid)
+                {
+                    source.Append("                    propertyValue.");
+                    source.Append(EscapeIdentifier(method.Name));
+                    source.AppendLine("();");
+                    source.AppendLine("                    return null;");
+                }
+                else
+                {
+                    source.Append("                    return propertyValue.");
+                    source.Append(EscapeIdentifier(method.Name));
+                    source.AppendLine("();");
+                }
+            }
+
+            source.AppendLine("                default:");
+            source.AppendLine("                    throw new global::System.MissingMethodException(\"Generated method metadata was not found for method '\" + methodName + \"'.\");");
+            source.AppendLine("            }");
+            source.AppendLine("        }");
             source.AppendLine();
         }
 
@@ -185,6 +241,34 @@ public sealed class GeneratedMetadataGenerator : IIncrementalGenerator
         return source.ToString();
     }
 
+    private static ImmutableArray<InvokableMethod> GetInvokableMethods(ITypeSymbol propertyType)
+    {
+        if (propertyType is not INamedTypeSymbol namedType || !namedType.IsReferenceType || namedType.SpecialType == SpecialType.System_String)
+        {
+            return ImmutableArray<InvokableMethod>.Empty;
+        }
+
+        return namedType.GetMembers()
+            .OfType<IMethodSymbol>()
+            .Where(static method =>
+                method.MethodKind == MethodKind.Ordinary &&
+                method.DeclaredAccessibility == Accessibility.Public &&
+                !method.IsStatic &&
+                !method.IsGenericMethod &&
+                !method.ReturnsByRef &&
+                !method.ReturnsByRefReadonly &&
+                method.Parameters.Length == 0 &&
+                method.ContainingType.SpecialType != SpecialType.System_Object)
+            .GroupBy(static method => method.Name, StringComparer.Ordinal)
+            .Where(static group => group.Count() == 1)
+            .Select(static group => group.Single())
+            .OrderBy(static method => method.Name, StringComparer.Ordinal)
+            .Select(static method => new InvokableMethod(
+                method.Name,
+                method.ReturnType.SpecialType == SpecialType.System_Void))
+            .ToImmutableArray();
+    }
+
     private static string GetFieldName(string attributeTypeFullName)
     {
         var builder = new StringBuilder("__");
@@ -194,6 +278,19 @@ public sealed class GeneratedMetadataGenerator : IIncrementalGenerator
         }
 
         return builder.ToString();
+    }
+
+    private static string GetInvokerName(MetadataProperty property)
+    {
+        return GetFieldName($"{property.DeclaringTypeFullName}.{property.PropertyName}.Invoker");
+    }
+
+    private static string EscapeIdentifier(string identifier)
+    {
+        return SyntaxFacts.GetKeywordKind(identifier) == SyntaxKind.None &&
+            SyntaxFacts.GetContextualKeywordKind(identifier) == SyntaxKind.None
+            ? identifier
+            : "@" + identifier;
     }
 
     private static void AppendString(StringBuilder source, string value)
@@ -209,10 +306,15 @@ public sealed class GeneratedMetadataGenerator : IIncrementalGenerator
         string Key,
         string AttributeTypeCodeName,
         string AttributeTypeFullName,
+        string DeclaringTypeCodeName,
         string DeclaringTypeFullName,
         string DeclaringTypeDisplayName,
         string PropertyName,
+        string PropertyTypeCodeName,
         string PropertyTypeFullName,
         string PropertyTypeDisplayName,
-        bool IsNullable);
+        bool IsNullable,
+        ImmutableArray<InvokableMethod> Methods);
+
+    private readonly record struct InvokableMethod(string Name, bool ReturnsVoid);
 }

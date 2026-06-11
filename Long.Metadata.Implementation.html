@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Long.Metadata - Implementation Guide</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --ink: #17202a;
+      --muted: #5f6b7a;
+      --line: #dbe2ea;
+      --accent: #0f766e;
+      --accent-2: #7c3aed;
+      --code-bg: #111827;
+      --code-ink: #e5e7eb;
+      --soft: #e8f5f3;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.6;
+    }
+
+    header {
+      background: #ffffff;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .wrap {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    .hero {
+      padding: 48px 0 32px;
+    }
+
+    .eyebrow {
+      margin: 0 0 12px;
+      color: var(--accent);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      font-size: 13px;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 850px;
+      font-size: 44px;
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    .hero p {
+      max-width: 760px;
+      margin: 18px 0 0;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 18px 0 22px;
+    }
+
+    nav a {
+      color: var(--ink);
+      text-decoration: none;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #ffffff;
+      font-size: 14px;
+    }
+
+    main {
+      padding: 28px 0 56px;
+    }
+
+    section {
+      margin: 0 0 28px;
+      padding: 28px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 28px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 24px 0 10px;
+      font-size: 20px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0 0 14px;
+    }
+
+    ul,
+    ol {
+      margin: 0 0 16px 22px;
+      padding: 0;
+    }
+
+    li {
+      margin: 7px 0;
+    }
+
+    code {
+      font-family: Consolas, "Cascadia Code", monospace;
+      font-size: .95em;
+    }
+
+    pre {
+      overflow: auto;
+      margin: 14px 0 20px;
+      padding: 16px;
+      color: var(--code-ink);
+      background: var(--code-bg);
+      border-radius: 8px;
+      line-height: 1.5;
+    }
+
+    pre code {
+      color: inherit;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .tile {
+      border: 1px solid var(--line);
+      background: #fbfcfe;
+      border-radius: 8px;
+      padding: 16px;
+      min-height: 118px;
+    }
+
+    .tile strong {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--accent);
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .step {
+      border: 1px solid var(--line);
+      border-top: 4px solid var(--accent);
+      background: #ffffff;
+      border-radius: 8px;
+      padding: 14px;
+      min-height: 130px;
+    }
+
+    .step span {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      margin-bottom: 8px;
+      border-radius: 50%;
+      background: var(--soft);
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .note {
+      border-left: 4px solid var(--accent-2);
+      background: #f4f1ff;
+      padding: 14px 16px;
+      border-radius: 6px;
+      color: #312e81;
+    }
+
+    .result {
+      border-left: 4px solid var(--accent);
+      background: var(--soft);
+      padding: 14px 16px;
+      border-radius: 6px;
+    }
+
+    footer {
+      color: var(--muted);
+      padding: 28px 0;
+      border-top: 1px solid var(--line);
+      background: #ffffff;
+      font-size: 14px;
+    }
+
+    @media (max-width: 860px) {
+      h1 {
+        font-size: 34px;
+      }
+
+      .grid,
+      .flow {
+        grid-template-columns: 1fr;
+      }
+
+      section {
+        padding: 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap hero">
+      <p class="eyebrow">Long.Metadata</p>
+      <h1>Compile-time metadata registries for .NET Native AOT</h1>
+      <p>
+        This guide explains how to implement the library, how the source generator works,
+        and why the runtime path does not need reflection scanning.
+      </p>
+    </div>
+    <nav class="wrap" aria-label="Sections">
+      <a href="#goal">Goal</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#usage">Usage</a>
+      <a href="#generator">Generator Flow</a>
+      <a href="#invoke">Invoke Method</a>
+      <a href="#result">Result</a>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <section id="goal">
+      <h2>1. Goal</h2>
+      <p>
+        `Long.Metadata` solves the problem of reading metadata from attributed properties without scanning reflection metadata at runtime.
+        This matters for Native AOT applications because reflection metadata can be trimmed and often requires explicit preservation.
+      </p>
+      <div class="result">
+        Desired outcome: developers call
+        <code>GeneratedMetadata.GetProperties&lt;IgnorePropertyAttribute&gt;()</code>
+        and receive metadata that was discovered and generated during compilation.
+      </div>
+    </section>
+
+    <section id="architecture">
+      <h2>2. Architecture</h2>
+      <div class="grid">
+        <div class="tile">
+          <strong>Long.Metadata.Abstractions</strong>
+          Contains <code>GeneratedMetadataAttribute</code>. Every custom metadata attribute that should be discovered by the generator derives from this type.
+        </div>
+        <div class="tile">
+          <strong>Long.Metadata.Runtime</strong>
+          Contains runtime models such as <code>GeneratedPropertyMetadata&lt;TAttribute&gt;</code> and the generated invocation delegate type.
+        </div>
+        <div class="tile">
+          <strong>Long.Metadata.Generator</strong>
+          An incremental source generator that uses the Roslyn semantic model to find valid attributed properties and emit AOT-safe code.
+        </div>
+      </div>
+    </section>
+
+    <section id="usage">
+      <h2>3. Implementing It In A Consumer Project</h2>
+      <h3>Reference the runtime and generator</h3>
+      <pre><code>&lt;ItemGroup&gt;
+  &lt;ProjectReference Include="..\Long.Metadata.Runtime\Long.Metadata.Runtime.csproj" /&gt;
+  &lt;ProjectReference Include="..\Long.Metadata.Generator\Long.Metadata.Generator.csproj"
+                    OutputItemType="Analyzer"
+                    ReferenceOutputAssembly="false" /&gt;
+&lt;/ItemGroup&gt;</code></pre>
+
+      <h3>Create a custom attribute</h3>
+      <pre><code>using Long.Metadata;
+
+public sealed class IgnorePropertyAttribute : GeneratedMetadataAttribute
+{
+}</code></pre>
+
+      <h3>Decorate a property</h3>
+      <pre><code>public sealed class User
+{
+    [IgnoreProperty]
+    public string Password { get; set; } = "";
+}</code></pre>
+
+      <h3>Read metadata without reflection</h3>
+      <pre><code>var ignored = GeneratedMetadata.GetProperties&lt;IgnorePropertyAttribute&gt;();
+
+foreach (var property in ignored)
+{
+    Console.WriteLine($"{property.DeclaringTypeDisplayName}.{property.PropertyName}");
+}</code></pre>
+    </section>
+
+    <section id="generator">
+      <h2>4. How The Generator Works</h2>
+      <div class="flow">
+        <div class="step">
+          <span>1</span>
+          <strong>Syntax filter</strong>
+          <p>The generator selects only <code>PropertyDeclarationSyntax</code> nodes with attributes to keep analysis cheap.</p>
+        </div>
+        <div class="step">
+          <span>2</span>
+          <strong>Semantic model</strong>
+          <p>It reads the real <code>IPropertySymbol</code> and attribute symbols instead of guessing from syntax strings.</p>
+        </div>
+        <div class="step">
+          <span>3</span>
+          <strong>Inheritance check</strong>
+          <p>It walks the attribute base type chain to verify inheritance from <code>GeneratedMetadataAttribute</code>.</p>
+        </div>
+        <div class="step">
+          <span>4</span>
+          <strong>Emit registry</strong>
+          <p>It generates static arrays, generic lookup APIs, all-property APIs, and optional method invokers.</p>
+        </div>
+      </div>
+
+      <h3>Generated code concept</h3>
+      <pre><code>public static class GeneratedMetadata
+{
+    public static IReadOnlyList&lt;GeneratedPropertyMetadata&lt;TAttribute&gt;&gt; GetProperties&lt;TAttribute&gt;()
+        where TAttribute : GeneratedMetadataAttribute
+    {
+        if (typeof(TAttribute) == typeof(IgnorePropertyAttribute))
+        {
+            return (IReadOnlyList&lt;GeneratedPropertyMetadata&lt;TAttribute&gt;&gt;)(object)__IgnorePropertyAttribute;
+        }
+
+        return Array.Empty&lt;GeneratedPropertyMetadata&lt;TAttribute&gt;&gt;();
+    }
+}</code></pre>
+
+      <p class="note">
+        Important point: runtime code reads generated static arrays. It does not scan assemblies,
+        scan types, scan properties, or call <code>GetCustomAttributes()</code>.
+      </p>
+    </section>
+
+    <section id="invoke">
+      <h2>5. Invoking Methods On Class Properties</h2>
+      <p>
+        If the decorated property is a reference type, the generator creates invokers for public instance methods
+        that are parameterless and non-generic. The runtime API is <code>metadata.Invoke(ownerInstance, methodName)</code>.
+      </p>
+
+      <pre><code>public sealed class AuditedPropertyAttribute : GeneratedMetadataAttribute
+{
+}
+
+public sealed class User
+{
+    [AuditedProperty]
+    public Account Account { get; set; } = new("active");
+}
+
+public sealed class Account(string status)
+{
+    public string GetStatus() =&gt; status;
+}
+
+var metadata = GeneratedMetadata.GetProperties&lt;AuditedPropertyAttribute&gt;().Single();
+var result = metadata.Invoke(user, "GetStatus");</code></pre>
+
+      <h3>Generated invoker concept</h3>
+      <pre><code>private static object? __User_Account_Invoker(object declaringInstance, string methodName)
+{
+    var propertyValue = ((User)declaringInstance).Account;
+    if (propertyValue is null)
+    {
+        return null;
+    }
+
+    switch (methodName)
+    {
+        case "GetStatus":
+            return propertyValue.GetStatus();
+        default:
+            throw new MissingMethodException(...);
+    }
+}</code></pre>
+
+      <ul>
+        <li>No reflection invoke is used.</li>
+        <li><code>void</code> methods return <code>null</code>.</li>
+        <li>A <code>null</code> property value returns <code>null</code>.</li>
+        <li>A method that was not generated throws <code>MissingMethodException</code>.</li>
+      </ul>
+    </section>
+
+    <section id="result">
+      <h2>6. Result Achieved</h2>
+      <ul>
+        <li>Supports .NET 8 and .NET 10 for runtime and abstractions.</li>
+        <li>Runs as an incremental source generator at compile time.</li>
+        <li>Uses the Roslyn semantic model to detect attributes derived from <code>GeneratedMetadataAttribute</code>.</li>
+        <li>Generates strongly typed registries by attribute type.</li>
+        <li>Avoids runtime reflection scanning, making the runtime path more Native AOT-friendly.</li>
+        <li>Supports method invocation on decorated class properties through generated direct calls.</li>
+        <li>Includes a sample consumer and unit tests that validate generated output.</li>
+      </ul>
+
+      <h3>Run commands</h3>
+      <pre><code>dotnet build Long.Metadata.slnx
+dotnet test Long.Metadata.slnx
+dotnet run --project samples/Long.Metadata.Sample/Long.Metadata.Sample.csproj --framework net8.0</code></pre>
+
+      <h3>Sample output</h3>
+      <pre><code>User.Password: string
+Account.GetStatus(): active</code></pre>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      Long.Metadata implementation guide. Open this file directly in a browser to read the walkthrough.
+    </div>
+  </footer>
+</body>
+</html>
