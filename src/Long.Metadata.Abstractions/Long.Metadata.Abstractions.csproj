@@ -1,0 +1,11 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>Long.Metadata.Abstractions</PackageId>
+    <Description>Attributes used by Long.Metadata compile-time metadata generation.</Description>
+  </PropertyGroup>
+
+</Project>

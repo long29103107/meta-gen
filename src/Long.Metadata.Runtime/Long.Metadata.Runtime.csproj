@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>Long.Metadata.Runtime</PackageId>
+    <Description>AOT-safe runtime APIs for Long.Metadata generated registries.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Long.Metadata.Abstractions\Long.Metadata.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>
