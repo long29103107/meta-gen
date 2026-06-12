@@ -4,6 +4,12 @@
 
 Instead of scanning assemblies, types, properties, and attributes at runtime, the generator uses Roslyn during compilation and emits direct lookup code into the consumer assembly.
 
+## Free For Everyone
+
+This project is intended to be free for everyone to use, copy, learn from, adapt, package, and reuse in personal, internal, or commercial projects.
+
+If you publish it publicly or redistribute packages from it, add a `LICENSE` file to the repository so the legal terms are explicit for downstream users.
+
 ## What This Repository Contains
 
 - `src/Long.Metadata.Abstractions`
@@ -87,7 +93,7 @@ There are two practical ways to reuse this repository from another application.
 
 ### Option 1: reference the source projects
 
-Use this while developing the library or while the consuming app lives in the same solution or repository. A common setup is to copy or vendor the `src/Long.Metadata.*` projects into a shared `tools`, `libs`, or `submodules` folder, then reference them from the application project.
+Use this while developing the library or while the consuming app lives in the same solution or repository. A common setup is to copy or vendor the `src/Long.Metadata.*` projects into a shared `tools`, `libs`, or `submodules` folder, then reference them from the application project. The code is intended to be free for everyone to reuse.
 
 ```xml
 <ItemGroup>
@@ -136,7 +142,7 @@ Make sure the generator package is treated as an analyzer in the final project f
 </ItemGroup>
 ```
 
-If you publish to a private feed such as Azure Artifacts, GitHub Packages, or a company NuGet server, use the same package references and configure the feed in `NuGet.config` or through `dotnet nuget add source`.
+If you publish to a private feed such as Azure Artifacts, GitHub Packages, or a company NuGet server, use the same package references and configure the feed in `NuGet.config` or through `dotnet nuget add source`. The packages produced from this repository are intended to be reusable by any project that references them.
 
 When you publish an updated package, bump the package version and update the consumer project with `dotnet add package Long.Metadata.Runtime --version <new-version>` and `dotnet add package Long.Metadata.Generator --version <new-version>`.
 
