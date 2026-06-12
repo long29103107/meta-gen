@@ -23,9 +23,17 @@ public sealed class GeneratedMetadataGenerator : IIncrementalGenerator
             .SelectMany(static (items, _) => items)
             .Collect();
 
-        context.RegisterSourceOutput(properties, static (context, items) =>
+        var types = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                static (node, _) => node is TypeDeclarationSyntax,
+                static (ctx, cancellationToken) => GetMetadataType(ctx, cancellationToken))
+            .Where(static item => item is not null)
+            .Select(static (item, _) => item!.Value)
+            .Collect();
+
+        context.RegisterSourceOutput(properties.Combine(types), static (context, items) =>
         {
-            var distinct = items
+            var distinctProperties = items.Left
                 .GroupBy(static item => item.Key)
                 .Select(static group => group.First())
                 .OrderBy(static item => item.AttributeTypeFullName, StringComparer.Ordinal)
@@ -33,7 +41,13 @@ public sealed class GeneratedMetadataGenerator : IIncrementalGenerator
                 .ThenBy(static item => item.PropertyName, StringComparer.Ordinal)
                 .ToImmutableArray();
 
-            context.AddSource("Long.Metadata.GeneratedMetadata.g.cs", GenerateSource(distinct));
+            var distinctTypes = items.Right
+                .GroupBy(static item => item.Key)
+                .Select(static group => group.First())
+                .OrderBy(static item => item.TypeFullName, StringComparer.Ordinal)
+                .ToImmutableArray();
+
+            context.AddSource("Long.Metadata.GeneratedMetadata.g.cs", GenerateSource(distinctProperties, distinctTypes));
         });
     }
 
@@ -73,6 +87,44 @@ public sealed class GeneratedMetadataGenerator : IIncrementalGenerator
         return builder.ToImmutable();
     }
 
+    private static MetadataType? GetMetadataType(GeneratorSyntaxContext context, CancellationToken cancellationToken)
+    {
+        var typeDeclaration = (TypeDeclarationSyntax)context.Node;
+        if (context.SemanticModel.GetDeclaredSymbol(typeDeclaration, cancellationToken) is not INamedTypeSymbol type ||
+            !IsSupportedMetadataType(type))
+        {
+            return null;
+        }
+
+        var attributes = type.GetAttributes()
+            .Select(static attribute => attribute.AttributeClass)
+            .Where(static attributeType => attributeType is not null && InheritsFromGeneratedMetadata(attributeType))
+            .Select(static attributeType => new AttributeKey(
+                attributeType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                attributeType.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat)))
+            .OrderBy(static attributeType => attributeType.FullName, StringComparer.Ordinal)
+            .ToImmutableArray();
+
+        return new MetadataType(
+            Key: type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            AttributeTypes: attributes,
+            TypeCodeName: type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+            TypeFullName: type.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat),
+            TypeDisplayName: type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+            Accessibility: GetAccessibility(type.DeclaredAccessibility),
+            IsAbstract: type.IsAbstract,
+            IsSealed: type.IsSealed,
+            IsInterface: type.TypeKind == TypeKind.Interface,
+            BaseTypeCodeNames: GetBaseTypeCodeNames(type),
+            InterfaceCodeNames: GetInterfaceCodeNames(type));
+    }
+
+    private static bool IsSupportedMetadataType(INamedTypeSymbol type)
+    {
+        return type.TypeKind == TypeKind.Interface ||
+            type.TypeKind == TypeKind.Class;
+    }
+
     private static bool InheritsFromGeneratedMetadata(INamedTypeSymbol attributeType)
     {
         for (var current = attributeType.BaseType; current is not null; current = current.BaseType)
@@ -86,10 +138,15 @@ public sealed class GeneratedMetadataGenerator : IIncrementalGenerator
         return false;
     }
 
-    private static string GenerateSource(ImmutableArray<MetadataProperty> properties)
+    private static string GenerateSource(ImmutableArray<MetadataProperty> properties, ImmutableArray<MetadataType> types)
     {
-        var attributes = properties
+        var propertyAttributes = properties
             .GroupBy(static property => new AttributeKey(property.AttributeTypeCodeName, property.AttributeTypeFullName))
+            .OrderBy(static group => group.Key.FullName, StringComparer.Ordinal)
+            .ToArray();
+        var typeAttributes = types
+            .SelectMany(static type => type.AttributeTypes.Select(attributeType => new AttributedMetadataType(attributeType, type)))
+            .GroupBy(static item => item.AttributeType)
             .OrderBy(static group => group.Key.FullName, StringComparer.Ordinal)
             .ToArray();
 
@@ -105,14 +162,14 @@ public sealed class GeneratedMetadataGenerator : IIncrementalGenerator
         source.AppendLine("            where TAttribute : global::Long.Metadata.GeneratedMetadataAttribute");
         source.AppendLine("        {");
 
-        foreach (var group in attributes)
+        foreach (var group in propertyAttributes)
         {
             source.Append("            if (typeof(TAttribute) == typeof(");
             source.Append(group.Key.CodeName);
             source.AppendLine("))");
             source.AppendLine("            {");
             source.Append("                return (global::System.Collections.Generic.IReadOnlyList<global::Long.Metadata.GeneratedPropertyMetadata<TAttribute>>)(object)");
-            source.Append(GetFieldName(group.Key.FullName));
+            source.Append(GetPropertyFieldName(group.Key.FullName));
             source.AppendLine(";");
             source.AppendLine("            }");
             source.AppendLine();
@@ -127,12 +184,38 @@ public sealed class GeneratedMetadataGenerator : IIncrementalGenerator
         source.AppendLine("        }");
         source.AppendLine();
 
-        foreach (var group in attributes)
+        source.AppendLine("        public static global::System.Collections.Generic.IReadOnlyList<global::Long.Metadata.GeneratedTypeMetadata<TAttribute>> GetTypes<TAttribute>()");
+        source.AppendLine("            where TAttribute : global::Long.Metadata.GeneratedMetadataAttribute");
+        source.AppendLine("        {");
+
+        foreach (var group in typeAttributes)
+        {
+            source.Append("            if (typeof(TAttribute) == typeof(");
+            source.Append(group.Key.CodeName);
+            source.AppendLine("))");
+            source.AppendLine("            {");
+            source.Append("                return (global::System.Collections.Generic.IReadOnlyList<global::Long.Metadata.GeneratedTypeMetadata<TAttribute>>)(object)");
+            source.Append(GetTypeFieldName(group.Key.FullName));
+            source.AppendLine(";");
+            source.AppendLine("            }");
+            source.AppendLine();
+        }
+
+        source.AppendLine("            return global::System.Array.Empty<global::Long.Metadata.GeneratedTypeMetadata<TAttribute>>();");
+        source.AppendLine("        }");
+        source.AppendLine();
+        source.AppendLine("        public static global::System.Collections.Generic.IReadOnlyList<global::Long.Metadata.GeneratedTypeMetadata> GetAllTypes()");
+        source.AppendLine("        {");
+        source.AppendLine("            return __AllTypes;");
+        source.AppendLine("        }");
+        source.AppendLine();
+
+        foreach (var group in propertyAttributes)
         {
             source.Append("        private static readonly global::Long.Metadata.GeneratedPropertyMetadata<");
             source.Append(group.Key.CodeName);
             source.Append(">[] ");
-            source.Append(GetFieldName(group.Key.FullName));
+            source.Append(GetPropertyFieldName(group.Key.FullName));
             source.AppendLine(" = new global::Long.Metadata.GeneratedPropertyMetadata<" + group.Key.CodeName + ">[]");
             source.AppendLine("        {");
 
@@ -158,6 +241,45 @@ public sealed class GeneratedMetadataGenerator : IIncrementalGenerator
                     source.Append(GetInvokerName(property));
                 }
 
+                source.AppendLine("),");
+            }
+
+            source.AppendLine("        };");
+            source.AppendLine();
+        }
+
+        foreach (var group in typeAttributes)
+        {
+            source.Append("        private static readonly global::Long.Metadata.GeneratedTypeMetadata<");
+            source.Append(group.Key.CodeName);
+            source.Append(">[] ");
+            source.Append(GetTypeFieldName(group.Key.FullName));
+            source.AppendLine(" = new global::Long.Metadata.GeneratedTypeMetadata<" + group.Key.CodeName + ">[]");
+            source.AppendLine("        {");
+
+            foreach (var item in group.OrderBy(static item => item.Type.TypeFullName, StringComparer.Ordinal))
+            {
+                var type = item.Type;
+                source.Append("            new global::Long.Metadata.GeneratedTypeMetadata<");
+                source.Append(group.Key.CodeName);
+                source.Append(">(typeof(");
+                source.Append(type.TypeCodeName);
+                source.Append("), ");
+                AppendString(source, type.TypeFullName);
+                source.Append(", ");
+                AppendString(source, type.TypeDisplayName);
+                source.Append(", ");
+                AppendString(source, type.Accessibility);
+                source.Append(", ");
+                source.Append(type.IsAbstract ? "true" : "false");
+                source.Append(", ");
+                source.Append(type.IsSealed ? "true" : "false");
+                source.Append(", ");
+                source.Append(type.IsInterface ? "true" : "false");
+                source.Append(", ");
+                AppendTypeArray(source, type.BaseTypeCodeNames);
+                source.Append(", ");
+                AppendTypeArray(source, type.InterfaceCodeNames);
                 source.AppendLine("),");
             }
 
@@ -235,6 +357,36 @@ public sealed class GeneratedMetadataGenerator : IIncrementalGenerator
         }
 
         source.AppendLine("        };");
+        source.AppendLine();
+        source.AppendLine("        private static readonly global::Long.Metadata.GeneratedTypeMetadata[] __AllTypes = new global::Long.Metadata.GeneratedTypeMetadata[]");
+        source.AppendLine("        {");
+
+        foreach (var type in types)
+        {
+            source.Append("            new global::Long.Metadata.GeneratedTypeMetadata(typeof(");
+            source.Append(type.TypeCodeName);
+            source.Append("), ");
+            AppendString(source, type.TypeFullName);
+            source.Append(", ");
+            AppendString(source, type.TypeDisplayName);
+            source.Append(", ");
+            AppendString(source, type.Accessibility);
+            source.Append(", ");
+            source.Append(type.IsAbstract ? "true" : "false");
+            source.Append(", ");
+            source.Append(type.IsSealed ? "true" : "false");
+            source.Append(", ");
+            source.Append(type.IsInterface ? "true" : "false");
+            source.Append(", ");
+            AppendTypeArray(source, type.BaseTypeCodeNames);
+            source.Append(", ");
+            AppendTypeArray(source, type.InterfaceCodeNames);
+            source.Append(", ");
+            AppendStringArray(source, type.AttributeTypes.Select(static attributeType => attributeType.FullName));
+            source.AppendLine("),");
+        }
+
+        source.AppendLine("        };");
         source.AppendLine("    }");
         source.AppendLine("}");
 
@@ -269,6 +421,39 @@ public sealed class GeneratedMetadataGenerator : IIncrementalGenerator
             .ToImmutableArray();
     }
 
+    private static ImmutableArray<string> GetBaseTypeCodeNames(INamedTypeSymbol type)
+    {
+        var builder = ImmutableArray.CreateBuilder<string>();
+        for (var current = type.BaseType; current is not null && current.SpecialType != SpecialType.System_Object; current = current.BaseType)
+        {
+            builder.Add(current.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
+        }
+
+        return builder.ToImmutable();
+    }
+
+    private static ImmutableArray<string> GetInterfaceCodeNames(INamedTypeSymbol type)
+    {
+        return type.AllInterfaces
+            .OrderBy(static item => item.ToDisplayString(SymbolDisplayFormat.CSharpErrorMessageFormat), StringComparer.Ordinal)
+            .Select(static item => item.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))
+            .ToImmutableArray();
+    }
+
+    private static string GetAccessibility(Accessibility accessibility)
+    {
+        return accessibility switch
+        {
+            Accessibility.Public => "public",
+            Accessibility.Internal => "internal",
+            Accessibility.Private => "private",
+            Accessibility.Protected => "protected",
+            Accessibility.ProtectedAndInternal => "private protected",
+            Accessibility.ProtectedOrInternal => "protected internal",
+            _ => "unknown"
+        };
+    }
+
     private static string GetFieldName(string attributeTypeFullName)
     {
         var builder = new StringBuilder("__");
@@ -278,6 +463,16 @@ public sealed class GeneratedMetadataGenerator : IIncrementalGenerator
         }
 
         return builder.ToString();
+    }
+
+    private static string GetPropertyFieldName(string attributeTypeFullName)
+    {
+        return GetFieldName($"{attributeTypeFullName}.Properties");
+    }
+
+    private static string GetTypeFieldName(string attributeTypeFullName)
+    {
+        return GetFieldName($"{attributeTypeFullName}.Types");
     }
 
     private static string GetInvokerName(MetadataProperty property)
@@ -300,6 +495,54 @@ public sealed class GeneratedMetadataGenerator : IIncrementalGenerator
         source.Append('"');
     }
 
+    private static void AppendTypeArray(StringBuilder source, IEnumerable<string> typeCodeNames)
+    {
+        var items = typeCodeNames.ToArray();
+        if (items.Length == 0)
+        {
+            source.Append("global::System.Array.Empty<global::System.Type>()");
+            return;
+        }
+
+        source.Append("new global::System.Type[] { ");
+        for (var index = 0; index < items.Length; index++)
+        {
+            if (index > 0)
+            {
+                source.Append(", ");
+            }
+
+            source.Append("typeof(");
+            source.Append(items[index]);
+            source.Append(")");
+        }
+
+        source.Append(" }");
+    }
+
+    private static void AppendStringArray(StringBuilder source, IEnumerable<string> values)
+    {
+        var items = values.ToArray();
+        if (items.Length == 0)
+        {
+            source.Append("global::System.Array.Empty<string>()");
+            return;
+        }
+
+        source.Append("new string[] { ");
+        for (var index = 0; index < items.Length; index++)
+        {
+            if (index > 0)
+            {
+                source.Append(", ");
+            }
+
+            AppendString(source, items[index]);
+        }
+
+        source.Append(" }");
+    }
+
     private readonly record struct AttributeKey(string CodeName, string FullName);
 
     private readonly record struct MetadataProperty(
@@ -315,6 +558,21 @@ public sealed class GeneratedMetadataGenerator : IIncrementalGenerator
         string PropertyTypeDisplayName,
         bool IsNullable,
         ImmutableArray<InvokableMethod> Methods);
+
+    private readonly record struct MetadataType(
+        string Key,
+        ImmutableArray<AttributeKey> AttributeTypes,
+        string TypeCodeName,
+        string TypeFullName,
+        string TypeDisplayName,
+        string Accessibility,
+        bool IsAbstract,
+        bool IsSealed,
+        bool IsInterface,
+        ImmutableArray<string> BaseTypeCodeNames,
+        ImmutableArray<string> InterfaceCodeNames);
+
+    private readonly record struct AttributedMetadataType(AttributeKey AttributeType, MetadataType Type);
 
     private readonly record struct InvokableMethod(string Name, bool ReturnsVoid);
 }

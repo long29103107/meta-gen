@@ -22,6 +22,36 @@ public sealed class GeneratedMetadataGeneratorTests
             {
             }
 
+            public sealed class ServiceContractAttribute : GeneratedMetadataAttribute
+            {
+            }
+
+            [ServiceContract]
+            public interface IServiceContract
+            {
+            }
+
+            [ServiceContract]
+            public abstract class MessageHandler
+            {
+            }
+
+            public interface IUserService
+            {
+            }
+
+            public sealed class UserService : IUserService
+            {
+            }
+
+            public abstract class BaseHandler
+            {
+            }
+
+            public sealed class ProductHandler : BaseHandler
+            {
+            }
+
             public sealed class User
             {
                 [IgnoreProperty]
@@ -65,6 +95,16 @@ public sealed class GeneratedMetadataGeneratorTests
         Assert.Contains("typeof(TAttribute) == typeof(global::IgnorePropertyAttribute)", generatedText);
         Assert.Contains("new global::Long.Metadata.GeneratedPropertyMetadata<global::IgnorePropertyAttribute>", generatedText);
         Assert.Contains("public static global::System.Collections.Generic.IReadOnlyList<global::Long.Metadata.GeneratedPropertyMetadata<TAttribute>> GetProperties<TAttribute>()", generatedText);
+        Assert.Contains("public static global::System.Collections.Generic.IReadOnlyList<global::Long.Metadata.GeneratedTypeMetadata<TAttribute>> GetTypes<TAttribute>()", generatedText);
+        Assert.Contains("public static global::System.Collections.Generic.IReadOnlyList<global::Long.Metadata.GeneratedTypeMetadata> GetAllTypes()", generatedText);
+        Assert.Contains("typeof(TAttribute) == typeof(global::ServiceContractAttribute)", generatedText);
+        Assert.Contains("new global::Long.Metadata.GeneratedTypeMetadata<global::ServiceContractAttribute>(typeof(global::IServiceContract)", generatedText);
+        Assert.Contains("new global::Long.Metadata.GeneratedTypeMetadata<global::ServiceContractAttribute>(typeof(global::MessageHandler)", generatedText);
+        Assert.Contains("new global::Long.Metadata.GeneratedTypeMetadata(typeof(global::UserService)", generatedText);
+        Assert.Contains("@\"public\", false, true, false", generatedText);
+        Assert.Contains("new global::System.Type[] { typeof(global::IUserService) }", generatedText);
+        Assert.Contains("new global::Long.Metadata.GeneratedTypeMetadata(typeof(global::ProductHandler)", generatedText);
+        Assert.Contains("new global::System.Type[] { typeof(global::BaseHandler) }", generatedText);
         Assert.Contains("__User_Profile_Invoker", generatedText);
         Assert.Contains("case @\"Normalize\":", generatedText);
         Assert.Contains("return propertyValue.Normalize();", generatedText);

@@ -246,7 +246,9 @@
       <a href="#goal">Goal</a>
       <a href="#architecture">Architecture</a>
       <a href="#usage">Usage</a>
+      <a href="#adoption">Adoption</a>
       <a href="#generator">Generator Flow</a>
+      <a href="#types">Type Metadata</a>
       <a href="#invoke">Invoke Method</a>
       <a href="#result">Result</a>
     </nav>
@@ -256,12 +258,12 @@
     <section id="goal">
       <h2>1. Goal</h2>
       <p>
-        `Long.Metadata` solves the problem of reading metadata from attributed properties without scanning reflection metadata at runtime.
+        <code>Long.Metadata</code> solves the problem of reading metadata from attributed properties and source-declared application types without scanning reflection metadata at runtime.
         This matters for Native AOT applications because reflection metadata can be trimmed and often requires explicit preservation.
       </p>
       <div class="result">
         Desired outcome: developers call
-        <code>GeneratedMetadata.GetProperties&lt;IgnorePropertyAttribute&gt;()</code>
+        <code>GeneratedMetadata.GetProperties&lt;IgnorePropertyAttribute&gt;()</code> or <code>GeneratedMetadata.GetAllTypes()</code>
         and receive metadata that was discovered and generated during compilation.
       </div>
     </section>
@@ -275,11 +277,11 @@
         </div>
         <div class="tile">
           <strong>Long.Metadata.Runtime</strong>
-          Contains runtime models such as <code>GeneratedPropertyMetadata&lt;TAttribute&gt;</code> and the generated invocation delegate type.
+          Contains runtime models such as <code>GeneratedPropertyMetadata&lt;TAttribute&gt;</code>, <code>GeneratedTypeMetadata</code>, and the generated invocation delegate type.
         </div>
         <div class="tile">
           <strong>Long.Metadata.Generator</strong>
-          An incremental source generator that uses the Roslyn semantic model to find valid attributed properties and emit AOT-safe code.
+          An incremental source generator that uses the Roslyn semantic model to find valid attributed properties and build a source-declared class/interface inventory.
         </div>
       </div>
     </section>
@@ -317,28 +319,78 @@ foreach (var property in ignored)
 }</code></pre>
     </section>
 
+    <section id="adoption">
+      <h2>4. Adopt It In Another Project</h2>
+      <p>
+        Consumers need the runtime assembly as a normal reference and the generator assembly as an analyzer.
+        The runtime types are used by application code, while the generator only runs during compilation.
+      </p>
+
+      <h3>Option 1: reference the source projects</h3>
+      <p>
+        Copy or vendor the <code>src/Long.Metadata.*</code> projects into a shared folder, submodule, or nearby repository,
+        then reference the runtime normally and the generator as an analyzer.
+      </p>
+      <pre><code>&lt;ItemGroup&gt;
+  &lt;ProjectReference Include="..\Long.Metadata\src\Long.Metadata.Runtime\Long.Metadata.Runtime.csproj" /&gt;
+  &lt;ProjectReference Include="..\Long.Metadata\src\Long.Metadata.Generator\Long.Metadata.Generator.csproj"
+                    OutputItemType="Analyzer"
+                    ReferenceOutputAssembly="false" /&gt;
+&lt;/ItemGroup&gt;</code></pre>
+
+      <h3>Option 2: pack NuGet packages</h3>
+      <pre><code>dotnet pack src/Long.Metadata.Abstractions/Long.Metadata.Abstractions.csproj -c Release -o artifacts/packages
+dotnet pack src/Long.Metadata.Runtime/Long.Metadata.Runtime.csproj -c Release -o artifacts/packages
+dotnet pack src/Long.Metadata.Generator/Long.Metadata.Generator.csproj -c Release -o artifacts/packages</code></pre>
+
+      <h3>Use a local package feed</h3>
+      <pre><code>dotnet nuget add source ./artifacts/packages --name LongMetadataLocal</code></pre>
+
+      <h3>Reference the packages</h3>
+      <pre><code>dotnet add package Long.Metadata.Runtime --version 0.1.0 --source ./artifacts/packages
+dotnet add package Long.Metadata.Generator --version 0.1.0 --source ./artifacts/packages</code></pre>
+
+      <p>Keep the generator package configured as an analyzer in the final project file.</p>
+      <pre><code>&lt;ItemGroup&gt;
+  &lt;PackageReference Include="Long.Metadata.Runtime" Version="0.1.0" /&gt;
+  &lt;PackageReference Include="Long.Metadata.Generator"
+                    Version="0.1.0"
+                    PrivateAssets="all"
+                    OutputItemType="Analyzer"
+                    ReferenceOutputAssembly="false" /&gt;
+&lt;/ItemGroup&gt;</code></pre>
+
+      <ul>
+        <li>Publish the same packages to a private NuGet feed when multiple projects need to reuse them.</li>
+        <li>Bump the package version and update consuming projects whenever a new reusable build is published.</li>
+        <li>Verify the generator package exposes <code>Long.Metadata.Generator.dll</code> as an analyzer in the final <code>.nupkg</code>.</li>
+        <li>The consumer app should reference the runtime package normally and should not load the generator at runtime.</li>
+        <li>Use <code>GetAllTypes()</code> for generated type inventory and <code>GetProperties&lt;TAttribute&gt;()</code> for attributed property metadata.</li>
+      </ul>
+    </section>
+
     <section id="generator">
-      <h2>4. How The Generator Works</h2>
+      <h2>5. How The Generator Works</h2>
       <div class="flow">
         <div class="step">
           <span>1</span>
           <strong>Syntax filter</strong>
-          <p>The generator selects only <code>PropertyDeclarationSyntax</code> nodes with attributes to keep analysis cheap.</p>
+          <p>The generator selects attributed <code>PropertyDeclarationSyntax</code> nodes and all class/interface declarations.</p>
         </div>
         <div class="step">
           <span>2</span>
           <strong>Semantic model</strong>
-          <p>It reads the real <code>IPropertySymbol</code> and attribute symbols instead of guessing from syntax strings.</p>
+          <p>It reads real <code>IPropertySymbol</code> and <code>INamedTypeSymbol</code> values instead of guessing from syntax strings.</p>
         </div>
         <div class="step">
           <span>3</span>
-          <strong>Inheritance check</strong>
-          <p>It walks the attribute base type chain to verify inheritance from <code>GeneratedMetadataAttribute</code>.</p>
+          <strong>Metadata capture</strong>
+          <p>It captures property attributes, type attributes, type accessibility, abstract/sealed/interface flags, base types, and interfaces.</p>
         </div>
         <div class="step">
           <span>4</span>
           <strong>Emit registry</strong>
-          <p>It generates static arrays, generic lookup APIs, all-property APIs, and optional method invokers.</p>
+          <p>It generates static arrays, generic lookup APIs, all-property/type APIs, and optional direct method invokers.</p>
         </div>
       </div>
 
@@ -363,8 +415,46 @@ foreach (var property in ignored)
       </p>
     </section>
 
+    <section id="types">
+      <h2>6. Type Metadata For DI Or Business Registries</h2>
+      <p>
+        The generator tracks all source-declared classes and interfaces at compile time.
+        Each generated type entry includes its access modifier, whether it is abstract, sealed, or an interface,
+        plus its base-type chain and implemented interfaces.
+      </p>
+
+      <pre><code>public interface IUserService
+{
+}
+
+public sealed class UserService : IUserService
+{
+}
+
+public abstract class BaseHandler
+{
+}
+
+public class ProductHandler : BaseHandler
+{
+}
+
+var services = GeneratedMetadata.GetAllTypes()
+    .Where(type =&gt; type.Accessibility == "public" &amp;&amp;
+        !type.IsAbstract &amp;&amp;
+        !type.IsInterface &amp;&amp;
+        type.IsAssignableTo(typeof(IUserService)));</code></pre>
+
+      <ul>
+        <li><code>GetAllTypes()</code> returns the full generated type inventory for the current compilation.</li>
+        <li><code>GetTypes&lt;TAttribute&gt;()</code> still returns the attributed type view when attributes are useful.</li>
+        <li>Each item includes the generated <code>Type</code>, display names, access modifier, abstract/sealed/interface flags, base types, and interfaces.</li>
+        <li>The runtime path still does not scan assemblies or use reflection attribute lookup.</li>
+      </ul>
+    </section>
+
     <section id="invoke">
-      <h2>5. Invoking Methods On Class Properties</h2>
+      <h2>7. Invoking Methods On Class Properties</h2>
       <p>
         If the decorated property is a reference type, the generator creates invokers for public instance methods
         that are parameterless and non-generic. The runtime API is <code>metadata.Invoke(ownerInstance, methodName)</code>.
@@ -415,13 +505,14 @@ var result = metadata.Invoke(user, "GetStatus");</code></pre>
     </section>
 
     <section id="result">
-      <h2>6. Result Achieved</h2>
+      <h2>8. Result Achieved</h2>
       <ul>
         <li>Supports .NET 8 and .NET 10 for runtime and abstractions.</li>
         <li>Runs as an incremental source generator at compile time.</li>
         <li>Uses the Roslyn semantic model to detect attributes derived from <code>GeneratedMetadataAttribute</code>.</li>
         <li>Generates strongly typed registries by attribute type.</li>
         <li>Avoids runtime reflection scanning, making the runtime path more Native AOT-friendly.</li>
+        <li>Supports generated class/interface metadata for DI or business registries.</li>
         <li>Supports method invocation on decorated class properties through generated direct calls.</li>
         <li>Includes a sample consumer and unit tests that validate generated output.</li>
       </ul>
@@ -433,7 +524,11 @@ dotnet run --project samples/Long.Metadata.Sample/Long.Metadata.Sample.csproj --
 
       <h3>Sample output</h3>
       <pre><code>User.Password: string
-Account.GetStatus(): active</code></pre>
+Account.GetStatus(): active
+BaseHandler: public abstract
+IUserService: public interface
+public sealed class UserService implements IUserService
+public class ProductHandler inherits BaseHandler</code></pre>
     </section>
   </main>
 
